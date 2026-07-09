@@ -22,6 +22,8 @@ class RiskManager:
         self.max_stop = float(cfg.get("max_stop_loss_pct", 10.0))
         self.min_confidence = float(cfg.get("min_confidence", 0.6))
         self.daily_loss_limit_pct = float(cfg.get("daily_loss_limit_pct", 5.0))
+        self.trailing_stop_pct = float(cfg.get("trailing_stop_pct", 4.0))
+        self.total_drawdown_limit_pct = float(cfg.get("total_drawdown_limit_pct", 20.0))
 
     def position_size(self, balance: float, confidence: float) -> float:
         """下单额 = 余额 × 仓位上限 × 置信度,再扣掉最小门槛。"""
@@ -35,6 +37,24 @@ class RiskManager:
 
     def confidence_ok(self, confidence: float) -> bool:
         return confidence >= self.min_confidence
+
+    def kill_switch_tripped(self, current_total: float) -> bool:
+        """总权益从历史峰值回撤超过阈值 => 永久停止开新仓,等人工复核。
+
+        基于 equity 历史计算,权益不回升就一直处于触发状态;确认要继续,
+        调大 total_drawdown_limit_pct 或换新数据库重新开始。
+        """
+        if self.total_drawdown_limit_pct <= 0:
+            return False
+        peak = self.store.peak_total()
+        if not peak or peak <= 0:
+            return False
+        drawdown_pct = (peak - current_total) / peak * 100
+        if drawdown_pct >= self.total_drawdown_limit_pct:
+            log.warning("总回撤 %.2f%% ≥ 开关线 %.2f%%(峰值 %.2f),停止开新仓,请人工复核",
+                        drawdown_pct, self.total_drawdown_limit_pct, peak)
+            return True
+        return False
 
     def circuit_breaker_tripped(self, current_total: float) -> bool:
         """当日(UTC)总权益回撤超过阈值 => 熔断,今天不再开新仓。"""

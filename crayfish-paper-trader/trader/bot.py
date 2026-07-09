@@ -50,21 +50,26 @@ def run_cycle(cfg: dict, store: Store, broker: PaperBroker, risk: RiskManager,
         market[symbol] = (candles, ind)
         acc = store.ensure_account(symbol, cfg["initial_balance"])
         total += broker.equity(acc, ind["last_price"])
-    halted = risk.circuit_breaker_tripped(total) if market else False
+    halted_reason = ""
+    if market:
+        if risk.kill_switch_tripped(total):
+            halted_reason = "总回撤开关触发"
+        elif risk.circuit_breaker_tripped(total):
+            halted_reason = "当日熔断中"
 
     for symbol, (candles, ind) in market.items():
         acc = store.ensure_account(symbol, cfg["initial_balance"])
         price = ind["last_price"]
 
-        # 止损永远优先于 AI 决策
+        # 移动止损上调、止损检查,永远先于 AI 决策
+        broker.apply_trailing_stop(acc, price, risk.trailing_stop_pct)
         stop_pnl = broker.check_stop_loss(acc, price)
 
         if mock_llm:
             decision = llm.mock_decision(ind, acc)
         else:
             prompt = llm.build_prompt(symbol, candles, ind, acc)
-            decision = llm.ask_claude(prompt, cfg["llm"]["command"],
-                                      cfg["llm"]["timeout_seconds"])
+            decision = llm.ask(cfg["llm"], prompt)
 
         executed, note = False, ""
         if stop_pnl is not None and decision.action == "SELL":
@@ -72,8 +77,8 @@ def run_cycle(cfg: dict, store: Store, broker: PaperBroker, risk: RiskManager,
         elif decision.action == "BUY":
             if acc.has_position:
                 note = "已持仓,忽略加仓建议"
-            elif halted:
-                note = "当日熔断中,禁止开新仓"
+            elif halted_reason:
+                note = f"{halted_reason},禁止开新仓"
             elif not risk.confidence_ok(decision.confidence):
                 note = f"置信度 {decision.confidence:.2f} 低于门槛"
             else:
@@ -124,7 +129,7 @@ def main() -> None:
     log.info("🦞 小龙虾模拟盘启动:%s | 数据=%s 决策=%s | 每 %s 分钟一轮",
              ", ".join(cfg["symbols"]),
              "mock" if args.mock else cfg["exchange"],
-             "mock" if mock_llm else cfg["llm"]["command"],
+             "mock" if mock_llm else cfg["llm"].get("provider", "codex"),
              cfg["interval_minutes"])
     while True:
         try:

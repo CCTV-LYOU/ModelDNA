@@ -7,7 +7,7 @@ symbols:                   # 每个交易对 = 一只"小龙虾",独立虚拟账
   - SOL/USDT
 timeframe: 1h              # K 线周期
 candles: 48                # 每轮喂给 AI 的 K 线数量
-interval_minutes: 45       # 决策轮询间隔;订阅有限额,不要低于 30
+interval_minutes: 60       # 决策轮询间隔;订阅有限额(尤其 Claude Pro),不要低于 30
 initial_balance: 10000.0   # 每只虾的初始虚拟资金(USDT)
 
 fee_pct: 0.1               # 模拟手续费,单边 0.1%
@@ -19,9 +19,15 @@ risk:
   max_stop_loss_pct: 10.0    # 止损上限,AI 给再大也压到这里
   min_confidence: 0.6        # 置信度低于此值不开仓
   daily_loss_limit_pct: 5.0  # 当日总权益回撤超过 5% => 熔断,当天停止开新仓
+  trailing_stop_pct: 4.0     # 移动止损:从开仓后最高价回落 4% 自动落袋(0=关闭)
+  total_drawdown_limit_pct: 20.0  # 总权益从峰值回撤 20% => 永久停止开新仓,等人工复核
 
 llm:
-  command: claude            # Claude Code CLI,走订阅登录,无需 API key
+  provider: codex            # codex(ChatGPT/Codex 订阅)或 claude(Claude Pro/Max 订阅)
+  codex_command: codex       # 走订阅登录,均无需 API key
+  codex_args: []             # 例如 ["-m", "gpt-5.5"];思考强度也可在 ~/.codex/config.toml 配
+  claude_command: claude
+  claude_args: []            # 例如 ["--model", "opus"]
   timeout_seconds: 240
 
 db_path: crayfish.db

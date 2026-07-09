@@ -42,6 +42,12 @@
   section { margin-top: 16px; }
   h2 { font-size: 14px; color: var(--ink-2); font-weight: 600; margin-bottom: 10px; }
   .chart-wrap { position: relative; }
+  .legend { display: flex; gap: 16px; font-size: 12px; color: var(--ink-2); margin-bottom: 6px; }
+  .legend .sw { display: inline-block; width: 14px; height: 3px; border-radius: 2px;
+    vertical-align: middle; margin-right: 6px; }
+  .legend .sw-dash {
+    background: repeating-linear-gradient(90deg, var(--muted) 0 3px, transparent 3px 6px);
+  }
   #tooltip {
     position: absolute; display: none; pointer-events: none; z-index: 2;
     background: #242423; border: 1px solid var(--border); border-radius: 6px;
@@ -106,11 +112,22 @@
     <div class="label">最大回撤</div>
     <div class="value">{{ "%.2f%%"|format(summary.max_drawdown) }}</div>
   </div>
+  <div class="card tile">
+    <div class="label">基准:买入持有</div>
+    <div class="value {{ 'up' if summary.bench_pnl_pct >= 0 else 'down' }}">
+      {{ "%+.2f%%"|format(summary.bench_pnl_pct) }}
+    </div>
+    <div class="sub">策略 − 基准 = {{ "%+.2f"|format(summary.alpha_pp) }} pp</div>
+  </div>
 </div>
 
 <section>
   <div class="card">
     <h2>总权益曲线(USDT,全部小龙虾之和)</h2>
+    <div class="legend">
+      <span><i class="sw" style="background:var(--series)"></i>AI 策略</span>
+      <span><i class="sw sw-dash"></i>买入持有基准</span>
+    </div>
     <div class="chart-wrap">
       <div id="tooltip"></div>
       {% if curve|length >= 2 %}
@@ -200,7 +217,8 @@ const curve = {{ curve|tojson }};
   const W = 840, H = 240, m = { t: 14, r: 16, b: 26, l: 62 };
   const iw = W - m.l - m.r, ih = H - m.t - m.b;
   const vals = curve.map(d => d.total);
-  let lo = Math.min(...vals), hi = Math.max(...vals);
+  const bvals = curve.map(d => d.bench);
+  let lo = Math.min(...vals, ...bvals), hi = Math.max(...vals, ...bvals);
   if (hi === lo) { hi += 1; lo -= 1; }
   const pad = (hi - lo) * 0.08; lo -= pad; hi += pad;
   const x = i => m.l + iw * i / (curve.length - 1);
@@ -225,20 +243,30 @@ const curve = {{ curve|tojson }};
       fill: "var(--muted)", "font-size": 11 });
     t.textContent = time(curve[idx].ts);
   }
-  const pts = curve.map((d, i) => `${x(i)},${y(d.total)}`).join(" ");
-  el("polyline", { points: pts, fill: "none", stroke: "var(--series)",
-    "stroke-width": 2, "stroke-linejoin": "round" });
+  // 基准线(虚线,置于下层)
+  el("polyline", { points: curve.map((d, i) => `${x(i)},${y(d.bench)}`).join(" "),
+    fill: "none", stroke: "var(--muted)", "stroke-width": 2,
+    "stroke-dasharray": "5,4", "stroke-linejoin": "round" });
+  // 策略线
+  el("polyline", { points: curve.map((d, i) => `${x(i)},${y(d.total)}`).join(" "),
+    fill: "none", stroke: "var(--series)", "stroke-width": 2,
+    "stroke-linejoin": "round" });
   const li = curve.length - 1;               // 末点标记 + 直接标注
   el("circle", { cx: x(li), cy: y(vals[li]), r: 4, fill: "var(--series)",
     stroke: "var(--surface)", "stroke-width": 2 });
   const lbl = el("text", { x: Math.min(x(li), W - m.r) - 6, y: y(vals[li]) - 10,
     "text-anchor": "end", fill: "var(--ink)", "font-size": 12, "font-weight": 600 });
   lbl.textContent = fmt(vals[li]);
+  const blbl = el("text", { x: Math.min(x(li), W - m.r) - 6, y: y(bvals[li]) + 16,
+    "text-anchor": "end", fill: "var(--muted)", "font-size": 11 });
+  blbl.textContent = "基准 " + fmt(bvals[li]);
 
-  // 悬停:十字线 + 最近点提示
+  // 悬停:十字线 + 最近点提示(两条线的值都显示)
   const cross = el("line", { y1: m.t, y2: H - m.b, stroke: "var(--muted)",
     "stroke-width": 1, "stroke-dasharray": "3,3", visibility: "hidden" });
   const dot = el("circle", { r: 4, fill: "var(--series)",
+    stroke: "var(--surface)", "stroke-width": 2, visibility: "hidden" });
+  const bdot = el("circle", { r: 4, fill: "var(--muted)",
     stroke: "var(--surface)", "stroke-width": 2, visibility: "hidden" });
   const tip = document.getElementById("tooltip");
   svg.addEventListener("mousemove", ev => {
@@ -250,8 +278,10 @@ const curve = {{ curve|tojson }};
     cross.setAttribute("visibility", "visible");
     dot.setAttribute("cx", x(i)); dot.setAttribute("cy", y(vals[i]));
     dot.setAttribute("visibility", "visible");
+    bdot.setAttribute("cx", x(i)); bdot.setAttribute("cy", y(bvals[i]));
+    bdot.setAttribute("visibility", "visible");
     tip.innerHTML = `<span class="t">${time(curve[i].ts)}</span><br>` +
-      `权益 <b>${fmt(vals[i])}</b> USDT`;
+      `策略 <b>${fmt(vals[i])}</b> · 基准 ${fmt(bvals[i])}`;
     tip.style.display = "block";
     const wrap = svg.parentElement.getBoundingClientRect();
     let tx = (x(i) / sx) + 12;
@@ -262,6 +292,7 @@ const curve = {{ curve|tojson }};
   svg.addEventListener("mouseleave", () => {
     cross.setAttribute("visibility", "hidden");
     dot.setAttribute("visibility", "hidden");
+    bdot.setAttribute("visibility", "hidden");
     tip.style.display = "none";
   });
 })();

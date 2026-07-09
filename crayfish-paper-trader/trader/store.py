@@ -11,7 +11,8 @@ CREATE TABLE IF NOT EXISTS accounts (
   balance     REAL NOT NULL,
   pos_amount  REAL NOT NULL DEFAULT 0,
   entry_price REAL NOT NULL DEFAULT 0,
-  stop_price  REAL NOT NULL DEFAULT 0
+  stop_price  REAL NOT NULL DEFAULT 0,
+  peak_price  REAL NOT NULL DEFAULT 0
 );
 CREATE TABLE IF NOT EXISTS trades (
   id     INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -67,6 +68,7 @@ class Account:
     pos_amount: float = 0.0
     entry_price: float = 0.0
     stop_price: float = 0.0
+    peak_price: float = 0.0  # 开仓以来的最高价,移动止损用
 
     @property
     def has_position(self) -> bool:
@@ -78,6 +80,11 @@ class Store:
         self.conn = sqlite3.connect(db_path)
         self.conn.row_factory = sqlite3.Row
         self.conn.executescript(SCHEMA)
+        # 旧库迁移:accounts 补 peak_price 列
+        cols = [r[1] for r in self.conn.execute("PRAGMA table_info(accounts)")]
+        if "peak_price" not in cols:
+            self.conn.execute(
+                "ALTER TABLE accounts ADD COLUMN peak_price REAL NOT NULL DEFAULT 0")
         self.conn.commit()
 
     def close(self) -> None:
@@ -101,13 +108,15 @@ class Store:
             pos_amount=row["pos_amount"],
             entry_price=row["entry_price"],
             stop_price=row["stop_price"],
+            peak_price=row["peak_price"],
         )
 
     def save_account(self, acc: Account) -> None:
         self.conn.execute(
-            "UPDATE accounts SET balance=?, pos_amount=?, entry_price=?, stop_price=?"
-            " WHERE symbol=?",
-            (acc.balance, acc.pos_amount, acc.entry_price, acc.stop_price, acc.symbol),
+            "UPDATE accounts SET balance=?, pos_amount=?, entry_price=?, stop_price=?,"
+            " peak_price=? WHERE symbol=?",
+            (acc.balance, acc.pos_amount, acc.entry_price, acc.stop_price,
+             acc.peak_price, acc.symbol),
         )
         self.conn.commit()
 
@@ -142,13 +151,21 @@ class Store:
         self.conn.commit()
 
     # ---- reads (dashboard / risk) ----
-    def equity_curve(self) -> list[tuple[str, float]]:
-        """每个决策轮次的总权益(全部小龙虾之和)。"""
+    def equity_curve(self) -> list[tuple[str, str, float]]:
+        """每个决策轮次的 (cycle, ts, 总权益)。"""
         rows = self.conn.execute(
             "SELECT cycle, SUM(equity) AS total, MIN(ts) AS ts FROM equity"
             " GROUP BY cycle ORDER BY MIN(id)"
         ).fetchall()
-        return [(r["ts"], r["total"]) for r in rows]
+        return [(r["cycle"], r["ts"], r["total"]) for r in rows]
+
+    def peak_total(self) -> float | None:
+        """历史最高的单轮总权益,总回撤开关用。"""
+        row = self.conn.execute(
+            "SELECT MAX(t) AS peak FROM"
+            " (SELECT SUM(equity) AS t FROM equity GROUP BY cycle)"
+        ).fetchone()
+        return row["peak"]
 
     def day_start_total(self, day_prefix: str) -> float | None:
         """当日(UTC)第一轮的总权益,用于当日熔断计算。"""

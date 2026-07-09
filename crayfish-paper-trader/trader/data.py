@@ -19,9 +19,15 @@ def fetch_ohlcv(exchange_id: str, symbol: str, timeframe: str, limit: int) -> li
 
 
 def mock_ohlcv(symbol: str, limit: int, seed: int | None = None) -> list[Candle]:
-    """随机游走的合成 K 线,用于离线验证全链路。"""
-    rng = random.Random(seed if seed is not None else time.time_ns())
-    price = _mock_last.get(symbol, _MOCK_BASE.get(symbol, 100.0))
+    """随机游走的合成 K 线,用于离线验证全链路。
+
+    带 seed 时结果完全可复现(从基准价开始,不接续上次价格),回测自检用;
+    不带 seed 时接续上次收盘价,模拟实时行情的连续性。
+    """
+    deterministic = seed is not None
+    rng = random.Random(seed if deterministic else time.time_ns())
+    price = (_MOCK_BASE.get(symbol, 100.0) if deterministic
+             else _mock_last.get(symbol, _MOCK_BASE.get(symbol, 100.0)))
     now_ms = int(time.time() * 1000)
     candles: list[Candle] = []
     for i in range(limit):
@@ -33,7 +39,8 @@ def mock_ohlcv(symbol: str, limit: int, seed: int | None = None) -> list[Candle]
         vol = abs(rng.gauss(1000, 300))
         candles.append([now_ms - (limit - i) * 3600_000, o, hi, lo, c, vol])
         price = c
-    _mock_last[symbol] = price
+    if not deterministic:
+        _mock_last[symbol] = price
     return candles
 
 

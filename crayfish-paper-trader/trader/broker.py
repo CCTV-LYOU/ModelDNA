@@ -27,6 +27,7 @@ class PaperBroker:
         acc.pos_amount = amount
         acc.entry_price = exec_price
         acc.stop_price = exec_price * (1 - stop_loss_pct / 100)
+        acc.peak_price = exec_price
         self.store.save_account(acc)
         self.store.add_trade(acc.symbol, "BUY", exec_price, amount, fee, None, note)
         log.info("[%s] 开仓 %.6g @ %.6g,止损 %.6g,费 %.2f",
@@ -45,11 +46,26 @@ class PaperBroker:
         acc.pos_amount = 0.0
         acc.entry_price = 0.0
         acc.stop_price = 0.0
+        acc.peak_price = 0.0
         self.store.save_account(acc)
         self.store.add_trade(acc.symbol, "SELL", exec_price, amount, fee, pnl, note)
         log.info("[%s] 平仓 %.6g @ %.6g,盈亏 %+.2f(%s)",
                  acc.symbol, amount, exec_price, pnl, note or "主动")
         return pnl
+
+    def apply_trailing_stop(self, acc: Account, price: float,
+                            trailing_pct: float) -> None:
+        """价格创开仓以来新高后,把止损线跟着抬上来(只升不降)。"""
+        if trailing_pct <= 0 or not acc.has_position:
+            return
+        if price > acc.peak_price:
+            acc.peak_price = price
+        candidate = acc.peak_price * (1 - trailing_pct / 100)
+        if candidate > acc.stop_price:
+            acc.stop_price = candidate
+            self.store.save_account(acc)
+            log.info("[%s] 移动止损上调至 %.6g(峰值 %.6g)",
+                     acc.symbol, acc.stop_price, acc.peak_price)
 
     def check_stop_loss(self, acc: Account, price: float) -> float | None:
         """价格触及止损线 => 强制平仓。返回已实现盈亏,未触发返回 None。"""
