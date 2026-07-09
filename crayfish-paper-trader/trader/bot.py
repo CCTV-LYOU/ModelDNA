@@ -114,7 +114,9 @@ def main() -> None:
     parser.add_argument("--mock", action="store_true",
                         help="mock 行情 + mock 决策,完全离线验证")
     parser.add_argument("--mock-llm", action="store_true",
-                        help="真行情,但用内置规则代替 Claude(不消耗订阅额度)")
+                        help="真行情,但用内置规则代替 AI(不消耗订阅额度)")
+    parser.add_argument("--mock-data", action="store_true",
+                        help="mock 行情 + 真实 AI 决策,用于验证 codex/claude 接线")
     parser.add_argument("--once", action="store_true", help="只跑一轮就退出")
     args = parser.parse_args()
 
@@ -125,15 +127,16 @@ def main() -> None:
     broker = PaperBroker(store, cfg["fee_pct"], cfg["slippage_pct"])
     risk = RiskManager(store, cfg.get("risk", {}))
     mock_llm = args.mock or args.mock_llm
+    mock_data = args.mock or args.mock_data
 
     log.info("🦞 小龙虾模拟盘启动:%s | 数据=%s 决策=%s | 每 %s 分钟一轮",
              ", ".join(cfg["symbols"]),
-             "mock" if args.mock else cfg["exchange"],
+             "mock" if mock_data else cfg["exchange"],
              "mock" if mock_llm else cfg["llm"].get("provider", "codex"),
              cfg["interval_minutes"])
     while True:
         try:
-            run_cycle(cfg, store, broker, risk, args.mock, mock_llm)
+            run_cycle(cfg, store, broker, risk, mock_data, mock_llm)
         except Exception:
             log.exception("本轮异常,%s 分钟后重试", cfg["interval_minutes"])
         if args.once:
