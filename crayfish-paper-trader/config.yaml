@@ -1,0 +1,27 @@
+# 小龙虾模拟盘配置(全部为纸面交易,不会动真钱)
+
+exchange: binance          # ccxt 交易所 id,只用公共行情接口,无需账号
+symbols:                   # 每个交易对 = 一只"小龙虾",独立虚拟账户
+  - BTC/USDT
+  - ETH/USDT
+  - SOL/USDT
+timeframe: 1h              # K 线周期
+candles: 48                # 每轮喂给 AI 的 K 线数量
+interval_minutes: 45       # 决策轮询间隔;订阅有限额,不要低于 30
+initial_balance: 10000.0   # 每只虾的初始虚拟资金(USDT)
+
+fee_pct: 0.1               # 模拟手续费,单边 0.1%
+slippage_pct: 0.05         # 模拟滑点 0.05%
+
+risk:
+  max_position_pct: 20.0     # 单笔最多动用余额的 20%(再乘以 AI 置信度)
+  default_stop_loss_pct: 3.0 # AI 没给止损时的默认止损
+  max_stop_loss_pct: 10.0    # 止损上限,AI 给再大也压到这里
+  min_confidence: 0.6        # 置信度低于此值不开仓
+  daily_loss_limit_pct: 5.0  # 当日总权益回撤超过 5% => 熔断,当天停止开新仓
+
+llm:
+  command: claude            # Claude Code CLI,走订阅登录,无需 API key
+  timeout_seconds: 240
+
+db_path: crayfish.db

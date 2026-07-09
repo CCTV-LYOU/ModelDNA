@@ -1,0 +1,270 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="refresh" content="60">
+<title>🦞 小龙虾模拟盘</title>
+<style>
+  :root {
+    --page: #0d0d0d;
+    --surface: #1a1a19;
+    --ink: #ffffff;
+    --ink-2: #c3c2b7;
+    --muted: #898781;
+    --grid: #2c2c2a;
+    --baseline: #383835;
+    --border: rgba(255,255,255,0.10);
+    --series: #3987e5;
+    --good: #0ca30c;
+    --bad: #d03b3b;
+  }
+  * { box-sizing: border-box; margin: 0; }
+  body {
+    background: var(--page); color: var(--ink);
+    font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+    padding: 20px; max-width: 1180px; margin: 0 auto;
+  }
+  header { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; }
+  h1 { font-size: 20px; }
+  .badge {
+    font-size: 12px; color: var(--ink-2); border: 1px solid var(--border);
+    border-radius: 999px; padding: 2px 10px;
+  }
+  .meta { color: var(--muted); font-size: 12px; margin-left: auto; }
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px; }
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; }
+  .tile .label { color: var(--muted); font-size: 12px; }
+  .tile .value { font-size: 24px; font-weight: 650; margin-top: 2px; }
+  .tile .sub { font-size: 12px; color: var(--ink-2); margin-top: 2px; }
+  .up { color: var(--good); }
+  .down { color: var(--bad); }
+  section { margin-top: 16px; }
+  h2 { font-size: 14px; color: var(--ink-2); font-weight: 600; margin-bottom: 10px; }
+  .chart-wrap { position: relative; }
+  #tooltip {
+    position: absolute; display: none; pointer-events: none; z-index: 2;
+    background: #242423; border: 1px solid var(--border); border-radius: 6px;
+    padding: 6px 10px; font-size: 12px; color: var(--ink); white-space: nowrap;
+  }
+  #tooltip .t { color: var(--muted); }
+  .grid-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 10px; }
+  .fish .head { display: flex; align-items: center; gap: 8px; }
+  .fish .tag { font-weight: 650; }
+  .fish .sym { color: var(--ink-2); font-size: 12px; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--baseline); margin-left: auto; }
+  .dot.on { background: var(--good); }
+  .fish .big { font-size: 20px; font-weight: 650; margin: 6px 0 2px; }
+  .fish .row { display: flex; justify-content: space-between; font-size: 12px; color: var(--ink-2); margin-top: 2px; }
+  .fish .row .k { color: var(--muted); }
+  .reason { font-size: 12px; color: var(--ink-2); margin-top: 8px; border-top: 1px solid var(--grid); padding-top: 6px; }
+  .reason .src { color: var(--muted); }
+  .tables { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  @media (max-width: 900px) { .tables { grid-template-columns: 1fr; } }
+  table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  th { text-align: left; color: var(--muted); font-weight: 500; padding: 4px 8px; border-bottom: 1px solid var(--baseline); }
+  td { padding: 4px 8px; border-bottom: 1px solid var(--grid); color: var(--ink-2); font-variant-numeric: tabular-nums; }
+  .chip { display: inline-block; font-size: 11px; border-radius: 4px; padding: 0 6px; border: 1px solid var(--border); }
+  .chip.BUY { color: var(--good); border-color: var(--good); }
+  .chip.SELL { color: var(--bad); border-color: var(--bad); }
+  .chip.HOLD { color: var(--muted); }
+  .empty { color: var(--muted); text-align: center; padding: 30px 0; }
+  footer { color: var(--muted); font-size: 12px; margin-top: 20px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>🦞 小龙虾模拟盘</h1>
+  <span class="badge">纸面交易 · 不涉及真实资金</span>
+  <span class="meta">已运行 {{ summary.cycles }} 轮 · 页面每 60s 自动刷新</span>
+</header>
+
+<div class="tiles">
+  <div class="card tile">
+    <div class="label">总权益 (USDT)</div>
+    <div class="value">{{ "%.2f"|format(summary.current_total) }}</div>
+  </div>
+  <div class="card tile">
+    <div class="label">总盈亏(含未实现)</div>
+    <div class="value {{ 'up' if summary.total_pnl >= 0 else 'down' }}">
+      {{ "▲" if summary.total_pnl >= 0 else "▼" }} {{ "%+.2f"|format(summary.total_pnl) }}
+    </div>
+    <div class="sub">{{ "%+.2f"|format(summary.total_pnl_pct) }}% · 已实现 {{ "%+.2f"|format(summary.realized) }}</div>
+  </div>
+  <div class="card tile">
+    <div class="label">今日盈亏</div>
+    <div class="value {{ 'up' if summary.today_pnl >= 0 else 'down' }}">
+      {{ "▲" if summary.today_pnl >= 0 else "▼" }} {{ "%+.2f"|format(summary.today_pnl) }}
+    </div>
+  </div>
+  <div class="card tile">
+    <div class="label">胜率(已平仓 {{ summary.closed }} 笔)</div>
+    <div class="value">{{ "%.0f%%"|format(summary.win_rate * 100) if summary.win_rate is not none else "—" }}</div>
+    <div class="sub">手续费合计 {{ "%.2f"|format(summary.fees) }}</div>
+  </div>
+  <div class="card tile">
+    <div class="label">最大回撤</div>
+    <div class="value">{{ "%.2f%%"|format(summary.max_drawdown) }}</div>
+  </div>
+</div>
+
+<section>
+  <div class="card">
+    <h2>总权益曲线(USDT,全部小龙虾之和)</h2>
+    <div class="chart-wrap">
+      <div id="tooltip"></div>
+      {% if curve|length >= 2 %}
+      <svg id="chart" viewBox="0 0 840 240" width="100%" role="img" aria-label="总权益曲线"></svg>
+      {% else %}
+      <div class="empty">数据不足,先跑几轮:python -m trader.bot --mock --once</div>
+      {% endif %}
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>小龙虾军团({{ crayfish|length }} 只 · 每只一个交易对,独立虚拟账户)</h2>
+  <div class="grid-cards">
+    {% for f in crayfish %}
+    <div class="card fish">
+      <div class="head">
+        <span class="tag">🦞 {{ f.tag }}</span>
+        <span class="sym">{{ f.symbol }}</span>
+        <span class="dot {{ 'on' if f.has_position }}" title="{{ '持仓中' if f.has_position else '空仓' }}"></span>
+      </div>
+      <div class="big {{ 'up' if f.pnl >= 0 else 'down' }}">{{ "%+.2f"|format(f.pnl) }}</div>
+      <div class="row"><span class="k">权益</span><span>{{ "%.2f"|format(f.equity) }}</span></div>
+      <div class="row"><span class="k">现价</span><span>{{ "%.6g"|format(f.price) }}</span></div>
+      {% if f.has_position %}
+      <div class="row"><span class="k">开仓 / 止损</span>
+        <span>{{ "%.6g"|format(f.entry_price) }} / {{ "%.6g"|format(f.stop_price) }}</span></div>
+      {% endif %}
+      <div class="row"><span class="k">胜率</span>
+        <span>{{ "%.0f%%"|format(f.stats.win_rate * 100) if f.stats.win_rate is not none else "—" }}
+          ({{ f.stats.closed }} 笔)</span></div>
+      {% if f.last %}
+      <div class="reason">
+        <span class="chip {{ f.last.action }}">{{ f.last.action }}</span>
+        <span class="src">{{ f.last.source }} · {{ f.last.ts[11:16] }}</span><br>
+        {{ f.last.reason or f.last.note }}
+      </div>
+      {% endif %}
+    </div>
+    {% endfor %}
+  </div>
+</section>
+
+<section class="tables">
+  <div class="card">
+    <h2>最近决策</h2>
+    <table>
+      <tr><th>时间</th><th>交易对</th><th>动作</th><th>置信</th><th>执行</th><th>理由 / 备注</th></tr>
+      {% for d in decisions %}
+      <tr>
+        <td>{{ d.ts[5:16] }}</td><td>{{ d.symbol }}</td>
+        <td><span class="chip {{ d.action }}">{{ d.action }}</span></td>
+        <td>{{ "%.2f"|format(d.confidence) if d.confidence is not none else "—" }}</td>
+        <td>{{ "✔" if d.executed else "—" }}</td>
+        <td>{{ d.note or d.reason }}</td>
+      </tr>
+      {% endfor %}
+    </table>
+  </div>
+  <div class="card">
+    <h2>最近成交(纸面)</h2>
+    <table>
+      <tr><th>时间</th><th>交易对</th><th>方向</th><th>价格</th><th>数量</th><th>费</th><th>盈亏</th></tr>
+      {% for t in trades %}
+      <tr>
+        <td>{{ t.ts[5:16] }}</td><td>{{ t.symbol }}</td>
+        <td><span class="chip {{ t.side }}">{{ t.side }}</span></td>
+        <td>{{ "%.6g"|format(t.price) }}</td>
+        <td>{{ "%.6g"|format(t.amount) }}</td>
+        <td>{{ "%.2f"|format(t.fee) }}</td>
+        <td class="{{ 'up' if t.pnl and t.pnl >= 0 else 'down' if t.pnl is not none else '' }}">
+          {{ "%+.2f"|format(t.pnl) if t.pnl is not none else "—" }}</td>
+      </tr>
+      {% endfor %}
+    </table>
+  </div>
+</section>
+
+<footer>模拟盘统计仅供策略验证,模拟盈利 ≠ 实盘盈利。所有下单均为纸面撮合,含 0.1% 手续费与 0.05% 滑点模拟。</footer>
+
+<script>
+const curve = {{ curve|tojson }};
+(function () {
+  if (curve.length < 2) return;
+  const svg = document.getElementById("chart");
+  const NS = "http://www.w3.org/2000/svg";
+  const W = 840, H = 240, m = { t: 14, r: 16, b: 26, l: 62 };
+  const iw = W - m.l - m.r, ih = H - m.t - m.b;
+  const vals = curve.map(d => d.total);
+  let lo = Math.min(...vals), hi = Math.max(...vals);
+  if (hi === lo) { hi += 1; lo -= 1; }
+  const pad = (hi - lo) * 0.08; lo -= pad; hi += pad;
+  const x = i => m.l + iw * i / (curve.length - 1);
+  const y = v => m.t + ih * (1 - (v - lo) / (hi - lo));
+  const el = (t, a) => { const e = document.createElementNS(NS, t);
+    for (const k in a) e.setAttribute(k, a[k]); svg.appendChild(e); return e; };
+  const fmt = v => v.toLocaleString("en-US", { maximumFractionDigits: 0 });
+  const time = ts => ts.slice(5, 16).replace("T", " ");
+
+  for (let i = 0; i <= 4; i++) {            // 横向网格 + y 轴刻度
+    const v = lo + (hi - lo) * i / 4, yy = y(v);
+    el("line", { x1: m.l, x2: W - m.r, y1: yy, y2: yy,
+      stroke: i === 0 ? "var(--baseline)" : "var(--grid)", "stroke-width": 1 });
+    const t = el("text", { x: m.l - 8, y: yy + 4, "text-anchor": "end",
+      fill: "var(--muted)", "font-size": 11 });
+    t.textContent = fmt(v);
+  }
+  const nx = Math.min(4, curve.length - 1);  // x 轴时间刻度
+  for (let i = 0; i <= nx; i++) {
+    const idx = Math.round((curve.length - 1) * i / nx);
+    const t = el("text", { x: x(idx), y: H - 8, "text-anchor": "middle",
+      fill: "var(--muted)", "font-size": 11 });
+    t.textContent = time(curve[idx].ts);
+  }
+  const pts = curve.map((d, i) => `${x(i)},${y(d.total)}`).join(" ");
+  el("polyline", { points: pts, fill: "none", stroke: "var(--series)",
+    "stroke-width": 2, "stroke-linejoin": "round" });
+  const li = curve.length - 1;               // 末点标记 + 直接标注
+  el("circle", { cx: x(li), cy: y(vals[li]), r: 4, fill: "var(--series)",
+    stroke: "var(--surface)", "stroke-width": 2 });
+  const lbl = el("text", { x: Math.min(x(li), W - m.r) - 6, y: y(vals[li]) - 10,
+    "text-anchor": "end", fill: "var(--ink)", "font-size": 12, "font-weight": 600 });
+  lbl.textContent = fmt(vals[li]);
+
+  // 悬停:十字线 + 最近点提示
+  const cross = el("line", { y1: m.t, y2: H - m.b, stroke: "var(--muted)",
+    "stroke-width": 1, "stroke-dasharray": "3,3", visibility: "hidden" });
+  const dot = el("circle", { r: 4, fill: "var(--series)",
+    stroke: "var(--surface)", "stroke-width": 2, visibility: "hidden" });
+  const tip = document.getElementById("tooltip");
+  svg.addEventListener("mousemove", ev => {
+    const r = svg.getBoundingClientRect(), sx = W / r.width;
+    const px = (ev.clientX - r.left) * sx;
+    const i = Math.max(0, Math.min(curve.length - 1,
+      Math.round((px - m.l) / iw * (curve.length - 1))));
+    cross.setAttribute("x1", x(i)); cross.setAttribute("x2", x(i));
+    cross.setAttribute("visibility", "visible");
+    dot.setAttribute("cx", x(i)); dot.setAttribute("cy", y(vals[i]));
+    dot.setAttribute("visibility", "visible");
+    tip.innerHTML = `<span class="t">${time(curve[i].ts)}</span><br>` +
+      `权益 <b>${fmt(vals[i])}</b> USDT`;
+    tip.style.display = "block";
+    const wrap = svg.parentElement.getBoundingClientRect();
+    let tx = (x(i) / sx) + 12;
+    if (tx + tip.offsetWidth > wrap.width) tx = (x(i) / sx) - tip.offsetWidth - 12;
+    tip.style.left = tx + "px";
+    tip.style.top = (y(vals[i]) / sx - 10) + "px";
+  });
+  svg.addEventListener("mouseleave", () => {
+    cross.setAttribute("visibility", "hidden");
+    dot.setAttribute("visibility", "hidden");
+    tip.style.display = "none";
+  });
+})();
+</script>
+</body>
+</html>
