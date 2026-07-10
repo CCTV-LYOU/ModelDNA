@@ -62,7 +62,12 @@ def run_cycle(cfg: dict, store: Store, broker: PaperBroker, risk: RiskManager,
         acc = store.ensure_account(symbol, cfg["initial_balance"])
         total += broker.equity(acc, ind["last_price"])
     halted_reason = ""
-    if market:
+    partial = len(market) < len(symbols)
+    if partial and market:
+        halted_reason = "partial data: totals not comparable, no new entries"
+        log.warning("market data incomplete (%d/%d): skip drawdown checks this cycle",
+                    len(market), len(symbols))
+    elif market:
         if risk.kill_switch_tripped(total):
             halted_reason = "总回撤开关触发"
         elif risk.circuit_breaker_tripped(total):
@@ -142,7 +147,8 @@ def run_cycle(cfg: dict, store: Store, broker: PaperBroker, risk: RiskManager,
                            decision.stop_loss_pct, decision.reason,
                            decision.source, executed, note)
         acc = store.ensure_account(symbol, cfg["initial_balance"])
-        store.add_equity(cycle, symbol, price, acc.balance, acc.pos_amount * price)
+        if not partial:
+            store.add_equity(cycle, symbol, price, acc.balance, acc.pos_amount * price)
         log.info("[%s] %s(%.2f)%s | 权益 %.2f | %s", symbol, decision.action,
                  decision.confidence, " ✔" if executed else "",
                  broker.equity(acc, price), note or decision.reason)

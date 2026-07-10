@@ -34,7 +34,7 @@ risk:
 
 llm:
   provider: codex            # codex(ChatGPT/Codex 订阅)或 claude(Claude Pro/Max 订阅)
-  codex_command: codex       # 走订阅登录,均无需 API key
+  codex_command: 'C:\Users\Administrator\.codex\plugins\.plugin-appserver\codex.exe'       # 走订阅登录,均无需 API key
   codex_args: []             # 例如 ["-m", "gpt-5.5"];思考强度也可在 ~/.codex/config.toml 配
   claude_command: claude
   claude_args: []            # 例如 ["--model", "opus"]
