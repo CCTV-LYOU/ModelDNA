@@ -1,0 +1,43 @@
+# 小龙虾模拟盘配置(全部为纸面交易,不会动真钱)
+
+exchange: okx              # ccxt 交易所 id,只用公共行情接口,无需账号
+                           # 注意:binance/bybit 对部分地区 IP 返回 451/403,受限地区用 okx/kraken/kucoin
+symbols:                   # 每个交易对 = 一只"小龙虾",独立虚拟账户
+  - BTC/USDT
+  - ETH/USDT
+  - SOL/USDT
+timeframe: 1h              # K 线周期
+candles: 48                # 每轮喂给 AI 的 K 线数量
+interval_minutes: 60       # 决策轮询间隔;订阅有限额(尤其 Claude Pro),不要低于 30
+initial_balance: 10000.0   # 每只虾的初始虚拟资金(USDT)
+
+fee_pct: 0.1               # 模拟手续费,单边 0.1%
+slippage_pct: 0.05         # 模拟滑点 0.05%
+
+risk:
+  max_position_pct: 20.0     # 单笔最多动用余额的 20%(再乘以 AI 置信度)
+  default_stop_loss_pct: 3.0 # AI 没给止损、且 ATR 止损关闭时的默认止损
+  max_stop_loss_pct: 10.0    # 止损上限,算出来再大也压到这里
+  min_confidence: 0.6        # 置信度低于此值不开仓
+  daily_loss_limit_pct: 5.0  # 当日总权益回撤超过 5% => 熔断,当天停止开新仓
+  trailing_stop_pct: 4.0     # 移动止损:从开仓后最高价回落 4% 自动落袋(0=关闭)
+  total_drawdown_limit_pct: 20.0  # 总权益从峰值回撤 20% => 永久停止开新仓,等人工复核
+  # ---- 四项增强(设 0 即关闭对应项;它们是"堵漏保命",不是"制造盈利")----
+  max_total_exposure_pct: 30.0  # 相关性敞口上限:BTC/ETH/SOL 同涨同跌,所有持仓市值
+                                #   合并算一个方向赌注,合计不超过总权益的 30%
+  adx_min_to_open: 18.0         # 行情过滤:ADX14 低于 18 视为震荡市,不开新趋势单
+  atr_stop_mult: 2.0            # ATR 止损:止损距离 = 2×ATR14(波动率自适应,替代固定百分比)
+  risk_per_trade_pct: 1.0       # 单笔风险预算:止损打掉最多亏余额的 1%(按止损距离反推仓位)
+  min_hold_hours: 4             # 最短持仓 4 小时,期间忽略主动 SELL(止损/止盈不受限)=> 降频
+  buy_confirm_bars: 2           # BUY 需连续 2 轮信号确认才开仓(1=关闭)=> 降频
+  take_profit_rr: 2.0           # 盈亏比止盈:止盈距离 = 2×初始止损距离,让赢单平均比亏单大
+
+llm:
+  provider: codex            # codex(ChatGPT/Codex 订阅)或 claude(Claude Pro/Max 订阅)
+  codex_command: 'C:\Users\Administrator\.codex\plugins\.plugin-appserver\codex.exe'       # 走订阅登录,均无需 API key
+  codex_args: []             # 例如 ["-m", "gpt-5.5"];思考强度也可在 ~/.codex/config.toml 配
+  claude_command: claude
+  claude_args: []            # 例如 ["--model", "opus"]
+  timeout_seconds: 240
+
+db_path: crayfish.db
