@@ -9,7 +9,11 @@
 回测的意义:
   1. 用几分钟看到策略在牛市/熊市/震荡市的表现,不用等几个月;
   2. 和"买入持有"基准硬碰硬对比——跑不赢基准的策略没有存在价值;
-  3. 验证撮合、止损、移动止损这套管线在长序列上的行为。
+  3. 验证撮合、止损/止盈、移动止损、ADX 过滤、二次确认这套管线在长序列上的行为。
+
+局限:回测按单交易对隔离账户,组合级敞口上限(max_total_exposure_pct)
+只在实时模拟里生效;--mock 的合成数据用 stable_seed 固定种子,结果完全可复现,
+但合成数据的收益数字是噪声,只用于验管线,不代表任何真实表现。
 """
 from __future__ import annotations
 
@@ -65,24 +69,33 @@ def backtest_symbol(symbol: str, candles: list[data.Candle], cfg: dict,
         window_n = cfg["candles"]
         equity_series: list[float] = []
 
+        buy_streak = 0
         for i in range(WARMUP, len(candles)):
             window = candles[max(0, i - window_n + 1): i + 1]
             ind = data.summarize(window)
-            price = candles[i][4]
-            low = candles[i][3]
+            ts, high, low, price = (candles[i][0], candles[i][2],
+                                    candles[i][3], candles[i][4])
 
             broker.apply_trailing_stop(acc, price, risk.trailing_stop_pct)
-            # 回测里用当根 K 线的最低价判断止损,按止损价成交(比实时更严格)
+            # 回测里用当根 K 线的最低/最高价判断止损/止盈,按触发价成交;
+            # 同一根 K 线同时触及两者时按止损算(悲观假设)
             if acc.has_position and low <= acc.stop_price:
                 broker.close_long(acc, acc.stop_price, note="止损触发")
+            elif acc.has_position and acc.tp_price > 0 and high >= acc.tp_price:
+                broker.close_long(acc, acc.tp_price, note="止盈触发(盈亏比达标)")
 
             d = strategy(ind, acc)
+            buy_streak = buy_streak + 1 if d.action == "BUY" else 0
             if d.action == "BUY" and not acc.has_position and risk.confidence_ok(d.confidence):
-                quote = risk.position_size(acc.balance, d.confidence)
-                if quote > 0:
-                    broker.open_long(acc, price, quote,
-                                     risk.clamp_stop_loss(d.stop_loss_pct), d.reason)
-            elif d.action == "SELL" and acc.has_position:
+                if (risk.regime_ok(ind.get("adx14"))
+                        and buy_streak >= max(1, risk.buy_confirm_bars)):
+                    stop_pct = risk.stop_loss_pct_for(price, ind.get("atr14"),
+                                                      d.stop_loss_pct)
+                    quote = risk.position_size(acc.balance, d.confidence, stop_pct)
+                    if quote > 0:
+                        broker.open_long(acc, price, quote, stop_pct, d.reason,
+                                         ts_ms=ts, take_profit_rr=risk.take_profit_rr)
+            elif d.action == "SELL" and acc.has_position and risk.min_hold_ok(acc, ts):
                 broker.close_long(acc, price, d.reason)
 
             equity_series.append(broker.equity(acc, price))
@@ -160,7 +173,9 @@ def main() -> None:
     candles_by_symbol: dict[str, list[data.Candle]] = {}
     for symbol in cfg["symbols"]:
         if args.mock:
-            candles_by_symbol[symbol] = data.mock_ohlcv(symbol, n, seed=hash(symbol) & 0xFFFF)
+            # 用 stable_seed(CRC32)而不是内置 hash():后者每个进程都随机化,
+            # 会让"同一条回测命令每次结果都不一样",无法比较改动前后的差异
+            candles_by_symbol[symbol] = data.mock_ohlcv(symbol, n, seed=data.stable_seed(symbol))
         else:
             since = int((time.time() - args.days * 86400) * 1000)
             print(f"拉取 {symbol} 最近 {args.days} 天 {cfg['timeframe']} K 线 ...")

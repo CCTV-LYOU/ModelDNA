@@ -15,7 +15,10 @@ class PaperBroker:
         self.slip = slippage_pct / 100
 
     def open_long(self, acc: Account, price: float, quote_amount: float,
-                  stop_loss_pct: float, note: str = "") -> bool:
+                  stop_loss_pct: float, note: str = "", ts_ms: float = 0.0,
+                  take_profit_rr: float = 0.0) -> bool:
+        """开多仓。take_profit_rr > 0 时同时挂盈亏比止盈:
+        止盈距离 = rr × 初始止损距离(如 rr=2 即"赢单目标是亏单的两倍")。"""
         exec_price = price * (1 + self.slip)
         fee = quote_amount * self.fee
         if quote_amount <= 0 or acc.balance < quote_amount + fee:
@@ -28,10 +31,14 @@ class PaperBroker:
         acc.entry_price = exec_price
         acc.stop_price = exec_price * (1 - stop_loss_pct / 100)
         acc.peak_price = exec_price
+        acc.tp_price = (exec_price * (1 + take_profit_rr * stop_loss_pct / 100)
+                        if take_profit_rr > 0 else 0.0)
+        acc.opened_ts_ms = ts_ms
         self.store.save_account(acc)
         self.store.add_trade(acc.symbol, "BUY", exec_price, amount, fee, None, note)
-        log.info("[%s] 开仓 %.6g @ %.6g,止损 %.6g,费 %.2f",
-                 acc.symbol, amount, exec_price, acc.stop_price, fee)
+        log.info("[%s] 开仓 %.6g @ %.6g,止损 %.6g,止盈 %s,费 %.2f",
+                 acc.symbol, amount, exec_price, acc.stop_price,
+                 f"{acc.tp_price:.6g}" if acc.tp_price else "—", fee)
         return True
 
     def close_long(self, acc: Account, price: float, note: str = "") -> float | None:
@@ -47,6 +54,8 @@ class PaperBroker:
         acc.entry_price = 0.0
         acc.stop_price = 0.0
         acc.peak_price = 0.0
+        acc.tp_price = 0.0
+        acc.opened_ts_ms = 0.0
         self.store.save_account(acc)
         self.store.add_trade(acc.symbol, "SELL", exec_price, amount, fee, pnl, note)
         log.info("[%s] 平仓 %.6g @ %.6g,盈亏 %+.2f(%s)",
@@ -71,6 +80,12 @@ class PaperBroker:
         """价格触及止损线 => 强制平仓。返回已实现盈亏,未触发返回 None。"""
         if acc.has_position and price <= acc.stop_price:
             return self.close_long(acc, price, note="止损触发")
+        return None
+
+    def check_take_profit(self, acc: Account, price: float) -> float | None:
+        """价格触及止盈线 => 落袋平仓。返回已实现盈亏,未触发返回 None。"""
+        if acc.has_position and acc.tp_price > 0 and price >= acc.tp_price:
+            return self.close_long(acc, price, note="止盈触发(盈亏比达标)")
         return None
 
     @staticmethod

@@ -52,7 +52,7 @@ def build_prompt(symbol: str, candles: list[Candle], ind: dict, acc: Account) ->
 
 技术指标: 最新价={fmt(ind['last_price'])} SMA10={fmt(ind['sma_fast'])} \
 SMA30={fmt(ind['sma_slow'])} RSI14={fmt(ind['rsi14'])} ATR14={fmt(ind['atr14'])} \
-24小时涨跌={fmt(ind['change_24h_pct'])}%
+ADX14={fmt(ind.get('adx14'))} 24小时涨跌={fmt(ind['change_24h_pct'])}%
 
 请基于以上数据给出下一步操作建议。要求:
 1. 只输出一个 JSON 对象,不要输出任何其他文字、markdown 或代码块标记。

@@ -7,12 +7,14 @@ from datetime import datetime, timezone
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS accounts (
-  symbol      TEXT PRIMARY KEY,
-  balance     REAL NOT NULL,
-  pos_amount  REAL NOT NULL DEFAULT 0,
-  entry_price REAL NOT NULL DEFAULT 0,
-  stop_price  REAL NOT NULL DEFAULT 0,
-  peak_price  REAL NOT NULL DEFAULT 0
+  symbol       TEXT PRIMARY KEY,
+  balance      REAL NOT NULL,
+  pos_amount   REAL NOT NULL DEFAULT 0,
+  entry_price  REAL NOT NULL DEFAULT 0,
+  stop_price   REAL NOT NULL DEFAULT 0,
+  peak_price   REAL NOT NULL DEFAULT 0,
+  tp_price     REAL NOT NULL DEFAULT 0,
+  opened_ts_ms REAL NOT NULL DEFAULT 0
 );
 CREATE TABLE IF NOT EXISTS trades (
   id     INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -68,7 +70,9 @@ class Account:
     pos_amount: float = 0.0
     entry_price: float = 0.0
     stop_price: float = 0.0
-    peak_price: float = 0.0  # 开仓以来的最高价,移动止损用
+    peak_price: float = 0.0    # 开仓以来的最高价,移动止损用
+    tp_price: float = 0.0      # 止盈价(按盈亏比目标算出),0=未设置
+    opened_ts_ms: float = 0.0  # 开仓 K 线时间戳(ms),最短持仓判断用
 
     @property
     def has_position(self) -> bool:
@@ -80,11 +84,12 @@ class Store:
         self.conn = sqlite3.connect(db_path)
         self.conn.row_factory = sqlite3.Row
         self.conn.executescript(SCHEMA)
-        # 旧库迁移:accounts 补 peak_price 列
+        # 旧库迁移:accounts 补新增列
         cols = [r[1] for r in self.conn.execute("PRAGMA table_info(accounts)")]
-        if "peak_price" not in cols:
-            self.conn.execute(
-                "ALTER TABLE accounts ADD COLUMN peak_price REAL NOT NULL DEFAULT 0")
+        for col in ("peak_price", "tp_price", "opened_ts_ms"):
+            if col not in cols:
+                self.conn.execute(
+                    f"ALTER TABLE accounts ADD COLUMN {col} REAL NOT NULL DEFAULT 0")
         self.conn.commit()
 
     def close(self) -> None:
@@ -109,14 +114,16 @@ class Store:
             entry_price=row["entry_price"],
             stop_price=row["stop_price"],
             peak_price=row["peak_price"],
+            tp_price=row["tp_price"],
+            opened_ts_ms=row["opened_ts_ms"],
         )
 
     def save_account(self, acc: Account) -> None:
         self.conn.execute(
             "UPDATE accounts SET balance=?, pos_amount=?, entry_price=?, stop_price=?,"
-            " peak_price=? WHERE symbol=?",
+            " peak_price=?, tp_price=?, opened_ts_ms=? WHERE symbol=?",
             (acc.balance, acc.pos_amount, acc.entry_price, acc.stop_price,
-             acc.peak_price, acc.symbol),
+             acc.peak_price, acc.tp_price, acc.opened_ts_ms, acc.symbol),
         )
         self.conn.commit()
 

@@ -3,9 +3,20 @@ from __future__ import annotations
 
 import random
 import time
+import zlib
 
 # candle: [timestamp_ms, open, high, low, close, volume]
 Candle = list[float]
+
+
+def stable_seed(symbol: str) -> int:
+    """跨进程稳定的随机种子。
+
+    不要用内置 hash():Python 对字符串哈希默认每个进程随机化
+    (PYTHONHASHSEED),会导致"同一条回测命令每次结果都不一样"。
+    CRC32 是确定性的,任何机器、任何进程算出来都一样。
+    """
+    return zlib.crc32(symbol.encode("utf-8")) & 0xFFFF
 
 _MOCK_BASE = {"BTC/USDT": 60000.0, "ETH/USDT": 3000.0, "SOL/USDT": 150.0}
 _mock_last: dict[str, float] = {}
@@ -79,6 +90,47 @@ def atr(candles: list[Candle], n: int = 14) -> float | None:
     return sum(trs) / n
 
 
+def adx(candles: list[Candle], n: int = 14) -> float | None:
+    """Wilder 平均趋向指数:>25 强趋势,<20 震荡。需要至少 2n+1 根 K 线。
+
+    用途:行情状态过滤——趋势策略在横盘里会被反复止损(来回打脸+手续费),
+    ADX 低于门槛时不开新的趋势单。
+    """
+    if len(candles) < 2 * n + 1:
+        return None
+    trs: list[float] = []
+    pdms: list[float] = []
+    ndms: list[float] = []
+    for prev, cur in zip(candles[:-1], candles[1:]):
+        _, _, hi, lo, _, _ = cur
+        prev_hi, prev_lo, prev_close = prev[2], prev[3], prev[4]
+        trs.append(max(hi - lo, abs(hi - prev_close), abs(lo - prev_close)))
+        up, down = hi - prev_hi, prev_lo - lo
+        pdms.append(up if up > down and up > 0 else 0.0)
+        ndms.append(down if down > up and down > 0 else 0.0)
+
+    def dx(tr_s: float, pdm_s: float, ndm_s: float) -> float:
+        if tr_s <= 0:
+            return 0.0
+        pdi, ndi = 100 * pdm_s / tr_s, 100 * ndm_s / tr_s
+        total = pdi + ndi
+        return 100 * abs(pdi - ndi) / total if total else 0.0
+
+    tr_s, pdm_s, ndm_s = sum(trs[:n]), sum(pdms[:n]), sum(ndms[:n])
+    dxs = [dx(tr_s, pdm_s, ndm_s)]
+    for i in range(n, len(trs)):
+        tr_s = tr_s - tr_s / n + trs[i]
+        pdm_s = pdm_s - pdm_s / n + pdms[i]
+        ndm_s = ndm_s - ndm_s / n + ndms[i]
+        dxs.append(dx(tr_s, pdm_s, ndm_s))
+    if len(dxs) < n:
+        return None
+    a = sum(dxs[:n]) / n
+    for v in dxs[n:]:
+        a = (a * (n - 1) + v) / n
+    return a
+
+
 def summarize(candles: list[Candle]) -> dict:
     closes = [c[4] for c in candles]
     last = closes[-1]
@@ -89,5 +141,6 @@ def summarize(candles: list[Candle]) -> dict:
         "sma_slow": sma(closes, 30),
         "rsi14": rsi(closes, 14),
         "atr14": atr(candles, 14),
+        "adx14": adx(candles, 14),
         "change_24h_pct": (last / first_24h - 1) * 100 if first_24h else 0.0,
     }
