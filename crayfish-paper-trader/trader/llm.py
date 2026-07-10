@@ -123,7 +123,7 @@ def normalize(raw: dict | None, source: str) -> Decision:
 
 def _run_cli(argv: list[str], timeout: int, name: str) -> str | None:
     try:
-        proc = subprocess.run(argv, capture_output=True, text=True, timeout=timeout)
+        proc = subprocess.run(argv, capture_output=True, text=True, timeout=timeout, encoding="utf-8", errors="replace")
     except FileNotFoundError:
         log.warning("找不到 `%s` 命令,请先安装并登录;本轮 HOLD", argv[0])
         return None
